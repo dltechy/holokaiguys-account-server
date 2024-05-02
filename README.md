@@ -31,6 +31,9 @@ $ pnpm run db:migrate:dev:createonly
 # reset database
 # warning: this will delete all data
 $ pnpm run db:reset
+
+# create super admin account
+$ pnpm run db:create:superadmin
 ```
 
 ## Running the app

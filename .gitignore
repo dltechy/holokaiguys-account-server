@@ -128,3 +128,6 @@ dist
 
 # lint-staged
 tsconfig.lintstaged.json
+
+# Files folder
+/files/

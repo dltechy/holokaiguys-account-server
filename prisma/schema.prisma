@@ -11,10 +11,21 @@ datasource db {
 }
 
 model User {
-  id        String   @id @default(uuid())
+  id String @id @default(uuid())
+
+  isSuperAdmin Boolean @map("is_super_admin")
+
+  discordId             String  @unique @map("discord_id")
+  discordUsername       String  @unique @map("discord_username")
+  discordDisplayName    String  @map("discord_display_name")
+  discordAvatarHash     String? @map("discord_avatar_hash")
+  discordAvatarFilename String? @map("discord_avatar_filename")
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
+  @@index(isSuperAdmin)
+  @@index(discordDisplayName)
   @@index(createdAt)
   @@index(updatedAt)
   @@map("user")
