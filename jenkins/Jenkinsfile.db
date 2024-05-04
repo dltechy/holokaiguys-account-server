@@ -1,0 +1,80 @@
+pipeline {
+    agent none
+
+    environment {
+        DOCKER_COMPOSE_PATH = 'docker/docker-compose.db.yml'
+
+        DATABASE_CREDENTIALS = credentials('database-credentials')
+    }
+
+    options {
+        withFolderProperties()
+        skipDefaultCheckout()
+    }
+
+    stages {
+        stage('Clean workspace (Start)') {
+            agent {
+                label AGENT_LABEL
+            }
+
+            steps {
+                cleanWs()
+            }
+        }
+
+        stage('Checkout') {
+            agent {
+                label AGENT_LABEL
+            }
+
+            steps {
+                checkout([
+                    $class: 'GitSCM',
+                    branches: [[name: BRANCH]],
+                    extensions: [],
+                    userRemoteConfigs: [[
+                        credentialsId: 'holokaiguys-account-server-github-deploy-key',
+                        url: 'git@github.com:dltechy/holokaiguys-account-server.git'
+                    ]]
+                ])
+            }
+        }
+
+        stage('Stop & remove old container') {
+            agent {
+                label AGENT_LABEL
+            }
+
+            steps {
+                sh 'docker stop $DATABASE_CONTAINER_NAME || true'
+                sh 'docker rm $DATABASE_CONTAINER_NAME || true'
+            }
+        }
+
+        stage('Run') {
+            agent {
+                label AGENT_LABEL
+            }
+
+            steps {
+                sh 'cat $DOCKER_COMPOSE_PATH |' +
+                    ' envsubst |' +
+                    ' docker compose' +
+                    ' -f -' +
+                    ' up' +
+                    ' -d'
+            }
+        }
+
+        stage('Clean workspace (End)') {
+            agent {
+                label AGENT_LABEL
+            }
+
+            steps {
+                cleanWs()
+            }
+        }
+    }
+}

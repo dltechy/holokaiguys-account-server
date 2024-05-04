@@ -1,0 +1,212 @@
+pipeline {
+    agent none
+
+    environment {
+        INITIAL_SETUP_IMAGE_NAME = '$ACCOUNT_SERVER_CONTAINER_NAME-initial-setup'
+        BUILD_DEPENDENCIES_IMAGE_NAME = '$ACCOUNT_SERVER_CONTAINER_NAME-build-dependencies'
+        DEPLOY_DEPENDENCIES_IMAGE_NAME = '$ACCOUNT_SERVER_CONTAINER_NAME-deploy-dependencies'
+        BUILDER_IMAGE_NAME = '$ACCOUNT_SERVER_CONTAINER_NAME-builder'
+
+        ENV_PATH = '.env'
+        DOCKERFILE_PATH = 'docker/Dockerfile'
+        DOCKER_COMPOSE_PATH = 'docker/docker-compose.yml'
+
+        DATABASE_CREDENTIALS = credentials('database-credentials')
+
+        REDIS_PASSWORD = credentials('redis-password')
+
+        AUTH_COOKIE_SECRET = credentials('auth-cookie-secret')
+        AUTH_SESSION_SECRET = credentials('auth-session-secret')
+
+        DISCORD_CREDENTIALS = credentials('discord-credentials')
+        DISCORD_BOT_TOKEN = credentials('discord-bot-token')
+    }
+
+    options {
+        withFolderProperties()
+        skipDefaultCheckout()
+    }
+
+    stages {
+        stage('Clean workspace (Start)') {
+            agent {
+                label AGENT_LABEL
+            }
+
+            steps {
+                cleanWs()
+            }
+        }
+
+        stage('Checkout') {
+            agent {
+                label AGENT_LABEL
+            }
+
+            steps {
+                checkout([
+                    $class: 'GitSCM',
+                    branches: [[name: BRANCH]],
+                    extensions: [],
+                    userRemoteConfigs: [[
+                        credentialsId: 'holokaiguys-account-server-github-deploy-key',
+                        url: 'git@github.com:dltechy/holokaiguys-account-server.git'
+                    ]]
+                ])
+            }
+        }
+
+        stage('Generate .env') {
+            agent {
+                label AGENT_LABEL
+            }
+
+            steps {
+                writeFile file: ENV_PATH, text: """\
+                    NODE_ENV="$NODE_ENV"
+
+                    PORT=$ACCOUNT_SERVER_PORT
+
+                    APP_NAME="$APP_NAME Server"
+
+                    APP_CORS_ORIGIN="$APP_CORS_ORIGIN"
+
+                    APP_BASE_URL="$BASE_URL$ACCOUNT_SERVER_PATH"
+
+                    DATABASE_URL="postgresql://$DATABASE_CREDENTIALS_USR:$DATABASE_CREDENTIALS_PSW@$DATABASE_CONTAINER_NAME:$DATABASE_PORT/$DATABASE_NAME"
+
+                    REDIS_HOST="$REDIS_CONTAINER_NAME"
+                    REDIS_PORT=$REDIS_PORT
+                    REDIS_DB_INDEX=$REDIS_DB_INDEX
+                    REDIS_PASSWORD=$REDIS_PASSWORD
+
+                    AUTH_COOKIE_SECRET="$AUTH_COOKIE_SECRET"
+                    AUTH_SESSION_SECRET="$AUTH_SESSION_SECRET"
+                    AUTH_SESSION_COOKIE_MAX_AGE=$AUTH_SESSION_COOKIE_MAX_AGE
+                    AUTH_IS_USING_PROXY=$AUTH_IS_USING_PROXY
+                    AUTH_IS_SESSION_COOKIE_SECURE=$AUTH_IS_SESSION_COOKIE_SECURE
+
+                    DISCORD_CLIENT_ID=$DISCORD_CREDENTIALS_USR
+                    DISCORD_CLIENT_SECRET=$DISCORD_CREDENTIALS_PSW
+                    DISCORD_BOT_TOKEN=$DISCORD_BOT_TOKEN
+                    DISCORD_SCOPES=$DISCORD_SCOPES
+
+                    QUERY_MAX_RESPONSE_COUNT=$QUERY_MAX_RESPONSE_COUNT
+                    """.stripIndent()
+
+                sh 'cat $ENV_PATH'
+            }
+        }
+
+        stage('Build') {
+            agent {
+                label AGENT_LABEL
+            }
+
+            steps {
+                script {
+                    env.PNPM_LOCK_HASH = sh(
+                        script: 'sha256sum -t pnpm-lock.yaml | cut -d " " -f 1',
+                        returnStdout: true
+                    ).trim()
+                }
+
+                sh 'docker build' +
+                    ' --target initial-setup' +
+                    ' -t "' + INITIAL_SETUP_IMAGE_NAME + '":$PNPM_LOCK_HASH' +
+                    ' -f $DOCKERFILE_PATH' +
+                    ' .'
+
+                sh 'docker build' +
+                    ' --target deploy-dependencies' +
+                    ' --build-arg INITIAL_SETUP_IMAGE="' + INITIAL_SETUP_IMAGE_NAME + '":$PNPM_LOCK_HASH' +
+                    ' -t "' + DEPLOY_DEPENDENCIES_IMAGE_NAME + '":$PNPM_LOCK_HASH' +
+                    ' -f $DOCKERFILE_PATH' +
+                    ' .'
+
+                sh 'docker build' +
+                    ' --target build-dependencies' +
+                    ' --build-arg DEPLOY_DEPENDENCIES_IMAGE="' + DEPLOY_DEPENDENCIES_IMAGE_NAME + '":$PNPM_LOCK_HASH' +
+                    ' -t "' + BUILD_DEPENDENCIES_IMAGE_NAME + '":$PNPM_LOCK_HASH' +
+                    ' -f $DOCKERFILE_PATH' +
+                    ' .'
+
+                sh 'docker build' +
+                    ' --target builder' +
+                    ' --build-arg BUILD_DEPENDENCIES_IMAGE="' + BUILD_DEPENDENCIES_IMAGE_NAME + '":$PNPM_LOCK_HASH' +
+                    ' -t "' + BUILDER_IMAGE_NAME + '":$BUILD_NUMBER' +
+                    ' -f $DOCKERFILE_PATH' +
+                    ' .'
+
+                sh 'docker build' +
+                    ' --target deployer' +
+                    ' --build-arg DEPLOY_DEPENDENCIES_IMAGE="' + DEPLOY_DEPENDENCIES_IMAGE_NAME + '":$PNPM_LOCK_HASH' +
+                    ' --build-arg BUILDER_IMAGE="' + BUILDER_IMAGE_NAME + '":$BUILD_NUMBER' +
+                    ' -t $ACCOUNT_SERVER_CONTAINER_NAME:$BUILD_NUMBER' +
+                    ' -f $DOCKERFILE_PATH' +
+                    ' .'
+            }
+        }
+
+        stage('Stop & remove old container') {
+            agent {
+                label AGENT_LABEL
+            }
+
+            steps {
+                sh 'docker stop $ACCOUNT_SERVER_CONTAINER_NAME || true'
+                sh 'docker rm $ACCOUNT_SERVER_CONTAINER_NAME || true'
+            }
+        }
+
+        stage('Run') {
+            agent {
+                label AGENT_LABEL
+            }
+
+            steps {
+                sh 'cat $DOCKER_COMPOSE_PATH |' +
+                    ' envsubst |' +
+                    ' docker compose' +
+                    ' -f -' +
+                    ' up' +
+                    ' -d'
+            }
+        }
+
+        stage('Apply migration scripts') {
+            agent {
+                label AGENT_LABEL
+            }
+
+            steps {
+                sh 'docker exec $ACCOUNT_SERVER_CONTAINER_NAME pnpm run db:migrate'
+            }
+        }
+
+        stage('Delete old images') {
+            agent {
+                label AGENT_LABEL
+            }
+
+            steps {
+                sh 'docker rmi \$(docker images "' + INITIAL_SETUP_IMAGE_NAME + '" | sed -nr \'/^([^ ]+) +(TAG|\'"$PNPM_LOCK_HASH"\') .*/!s/^([^ ]+) +([^ ]+) .*/\\1:\\2/p\') || true'
+                sh 'docker rmi \$(docker images "' + DEPLOY_DEPENDENCIES_IMAGE_NAME + '" | sed -nr \'/^([^ ]+) +(TAG|\'"$PNPM_LOCK_HASH"\') .*/!s/^([^ ]+) +([^ ]+) .*/\\1:\\2/p\') || true'
+                sh 'docker rmi \$(docker images "' + BUILD_DEPENDENCIES_IMAGE_NAME + '" | sed -nr \'/^([^ ]+) +(TAG|\'"$PNPM_LOCK_HASH"\') .*/!s/^([^ ]+) +([^ ]+) .*/\\1:\\2/p\') || true'
+                sh 'docker rmi \$(docker images "' + BUILDER_IMAGE_NAME + '" | sed -nr \'/^([^ ]+) +(TAG|\'"$BUILD_NUMBER"\') .*/!s/^([^ ]+) +([^ ]+) .*/\\1:\\2/p\') || true'
+                sh 'docker rmi \$(docker images $ACCOUNT_SERVER_CONTAINER_NAME | sed -nr \'/^([^ ]+) +(TAG|\'"$BUILD_NUMBER"\') .*/!s/^([^ ]+) +([^ ]+) .*/\\1:\\2/p\') || true'
+                sh 'docker rmi \$(docker images -f dangling=true -q) || true'
+            }
+        }
+
+        stage('Clean workspace (End)') {
+            agent {
+                label AGENT_LABEL
+            }
+
+            steps {
+                cleanWs()
+            }
+        }
+    }
+}
