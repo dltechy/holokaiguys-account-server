@@ -79,7 +79,10 @@ describe('AuthService', () => {
     it('should return login state if redirect URLs begin with the string CORS origin', () => {
       reqMock.query = authSamples[0].discordLoginDto;
       jest.spyOn(configService, 'get').mockReturnValue({
-        corsOrigin: ['https://sample'],
+        corsOrigin: [
+          authSamples[0].discordLoginDto.successRedirectUrl,
+          authSamples[0].discordLoginDto.failRedirectUrl,
+        ],
       });
 
       const state = service.getDiscordLoginState(reqMock as {} as Request);
@@ -148,7 +151,10 @@ describe('AuthService', () => {
       reqMock.user = usersSamples[0].user;
       reqMock.query = authSamples[0].discordStateDto;
       jest.spyOn(configService, 'get').mockReturnValue({
-        corsOrigin: ['https://sample'],
+        corsOrigin: [
+          authSamples[0].discordLoginDto.successRedirectUrl,
+          authSamples[0].discordLoginDto.failRedirectUrl,
+        ],
       });
 
       const redirectUrl = service.getRedirectUrl(reqMock as {} as Request);

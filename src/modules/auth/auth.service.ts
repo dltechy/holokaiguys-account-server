@@ -33,21 +33,20 @@ export class AuthService {
       return true;
     }
 
-    return corsOrigin.reduce((isValid, value) => {
-      if (typeof value === 'string') {
-        return (
-          isValid &&
-          successRedirectUrl.startsWith(value) &&
-          failRedirectUrl.startsWith(value)
-        );
-      }
+    const successRedirectUrlOrigin = new URL(successRedirectUrl).origin;
+    const failRedirectUrlOrigin = new URL(failRedirectUrl).origin;
 
-      return (
-        isValid &&
-        (value as RegExp).test(successRedirectUrl) &&
-        (value as RegExp).test(failRedirectUrl)
-      );
-    }, true);
+    return [successRedirectUrlOrigin, failRedirectUrlOrigin].every(
+      (redirectUrlOrigin) => {
+        return corsOrigin.some((origin) => {
+          if (typeof origin === 'string') {
+            return redirectUrlOrigin === origin;
+          }
+
+          return (origin as RegExp).test(redirectUrlOrigin);
+        });
+      },
+    );
   }
 
   public getDiscordLoginState(req: Request): string {
