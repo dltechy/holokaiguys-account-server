@@ -2,15 +2,15 @@ import { INestApplication } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import * as request from 'supertest';
 
-import { AuthGuard } from '@app/guards/auth.guard';
+import { BearerAuthGuard } from '@app/guards/bearer-auth.guard';
 import { DiscordAuthGuard } from '@app/guards/discord-auth.guard';
 import { AuthController } from '@app/modules/auth/auth.controller';
 import { AuthService } from '@app/modules/auth/auth.service';
 import { usersSamples } from '@app/modules/users/__tests__/samples/users.samples';
 
 import {
-  authGuardMock,
   authServiceMock,
+  bearerAuthGuardMock,
   discordAuthGuardMock,
 } from './mocks/auth.mocks';
 
@@ -31,8 +31,8 @@ describe('AuthController', () => {
     })
       .overrideGuard(DiscordAuthGuard)
       .useValue(discordAuthGuardMock)
-      .overrideGuard(AuthGuard)
-      .useValue(authGuardMock)
+      .overrideGuard(BearerAuthGuard)
+      .useValue(bearerAuthGuardMock)
       .compile();
 
     return module;
@@ -84,6 +84,12 @@ describe('AuthController', () => {
     expect(header.location).toEqual('sampleRedirectUrl');
   });
 
+  it('should connect to "GET /auth/token"', async () => {
+    await request(app.getHttpServer()).get('/auth/token');
+
+    expect(authServiceMock.token).toHaveBeenCalled();
+  });
+
   it('should connect to "POST /auth/logout"', async () => {
     await request(app.getHttpServer()).post('/auth/logout');
 
@@ -91,7 +97,7 @@ describe('AuthController', () => {
   });
 
   it('should connect to "GET /auth/userinfo"', async () => {
-    authGuardMock.canActivate.mockResolvedValue(true);
+    bearerAuthGuardMock.canActivate.mockResolvedValue(true);
     authServiceMock.userinfo.mockReturnValue(usersSamples[0].user);
 
     const { body } = await request(app.getHttpServer()).get('/auth/userinfo');

@@ -1,9 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { PassportSerializer } from '@nestjs/passport';
 
-import { User } from '@app/modules/users/schemas/user';
-
+import { User } from '../users/schemas/user';
 import { UsersDao } from '../users/users.dao';
+import { PassportSessionUser } from './schemas/passport-session';
 
 @Injectable()
 export class SessionSerializer extends PassportSerializer {
@@ -12,18 +12,27 @@ export class SessionSerializer extends PassportSerializer {
   }
 
   public async serializeUser(
-    { id }: User,
-    done: (error: Error, user: User) => void,
+    sessionUser: PassportSessionUser,
+    done: (error: Error, sessionUser: PassportSessionUser) => void,
   ): Promise<void> {
-    const user = await this.usersDao.getById(id);
-    done(null, user);
+    const currentDate = new Date();
+    sessionUser.tokens = sessionUser.tokens.filter(
+      (token) => currentDate < new Date(token.expiresAt),
+    );
+
+    done(null, sessionUser);
   }
 
   public async deserializeUser(
-    { id }: User,
+    sessionUser: PassportSessionUser,
     done: (error: Error, user: User) => void,
   ): Promise<void> {
-    const user = await this.usersDao.getById(id);
+    const currentDate = new Date();
+    sessionUser.tokens = sessionUser.tokens.filter(
+      (token) => currentDate < new Date(token.expiresAt),
+    );
+
+    const user = await this.usersDao.getById(sessionUser.id);
     done(null, user);
   }
 }

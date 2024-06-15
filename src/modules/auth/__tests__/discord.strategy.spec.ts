@@ -3,15 +3,14 @@ import { Request } from 'express';
 
 import { getConfigImport } from '@app/helpers/__tests__/imports/config-imports.helper';
 import { axiosMock } from '@app/helpers/__tests__/mocks/axios.mocks';
-import { reqMock } from '@app/helpers/__tests__/mocks/express.mocks';
 import { filesHelperMock } from '@app/helpers/__tests__/mocks/files-helper.mocks';
-import { uuidMock } from '@app/helpers/__tests__/mocks/uuid.mocks';
+import { uuidHelperMock } from '@app/helpers/__tests__/mocks/uuid.mocks';
 import { FilesHelper } from '@app/helpers/files/files.helper';
 import {
   axiosSymbol,
   DiscordStrategy as Strategy,
-  uuidSymbol,
 } from '@app/helpers/imports/imports.helper';
+import { UuidHelper } from '@app/helpers/uuid/uuid.helper';
 import { AuthService } from '@app/modules/auth/auth.service';
 import { DiscordStrategy } from '@app/modules/auth/discord.strategy';
 import { usersDaoMock } from '@app/modules/users/__tests__/mocks/users.mocks';
@@ -44,12 +43,12 @@ describe('DiscordStrategy', () => {
           useValue: filesHelperMock,
         },
         {
-          provide: axiosSymbol,
-          useValue: axiosMock,
+          provide: UuidHelper,
+          useValue: uuidHelperMock,
         },
         {
-          provide: uuidSymbol,
-          useValue: uuidMock,
+          provide: axiosSymbol,
+          useValue: axiosMock,
         },
       ],
     }).compile();
@@ -76,8 +75,33 @@ describe('DiscordStrategy', () => {
   });
 
   describe('authenticate', () => {
-    it('should pass the login state to Discord', () => {
-      authServiceMock.getDiscordLoginState.mockReturnValue(
+    it('should succeed if user is already logged in', async () => {
+      authServiceMock.createDiscordLoginState.mockReturnValue(
+        authSamples[0].discordStateDto.state,
+      );
+
+      const success = jest.fn();
+      strategy.success = success;
+
+      const req = {
+        query: {
+          ...authSamples[0].discordLoginDto,
+        },
+        session: {
+          passport: {
+            user: authSamples[0].passportSessionUser,
+          },
+        },
+      } as {} as Request;
+
+      await strategy.authenticate(req);
+
+      expect(req.query.state).toEqual(authSamples[0].discordStateDto.state);
+      expect(success).toHaveBeenCalledWith(authSamples[0].passportSessionUser);
+    });
+
+    it('should pass the login state to Discord', async () => {
+      authServiceMock.createDiscordLoginState.mockReturnValue(
         authSamples[0].discordStateDto.state,
       );
 
@@ -85,10 +109,15 @@ describe('DiscordStrategy', () => {
         .spyOn(Strategy.prototype, 'authenticate')
         .mockImplementation(jest.fn());
 
-      strategy.authenticate(reqMock as {} as Request);
+      const req = {
+        query: {},
+        session: {},
+      } as {} as Request;
+
+      await strategy.authenticate(req);
 
       expect(authenticate).toHaveBeenCalledWith(
-        reqMock,
+        req,
         expect.objectContaining({
           state: authSamples[0].discordStateDto.state,
         }),
@@ -97,40 +126,46 @@ describe('DiscordStrategy', () => {
   });
 
   describe('validate', () => {
-    it('should return new user if it does not exist yet', async () => {
+    it('should return ID of new user if it does not exist yet', async () => {
       usersDaoMock.getByDiscordId.mockResolvedValue(null);
       usersDaoMock.create.mockResolvedValue(usersSamples[0].user);
-      uuidMock.v4.mockReturnValue('');
+      uuidHelperMock.generate.mockReturnValue('');
       axiosMock.get.mockResolvedValue(authSamples[0].discordAxiosResponseData);
 
-      const user = await strategy.validate(
+      const validatedData = await strategy.validate(
         '',
         '',
         authSamples[0].discordResponse,
       );
 
-      expect(user).toEqual(usersSamples[0].user);
+      expect(validatedData).toEqual({
+        id: authSamples[0].passportSessionUser.id,
+        tokens: [],
+      });
     });
 
-    it('should return updated user if it already exists', async () => {
+    it('should return ID of updated user if it already exists', async () => {
       usersDaoMock.getByDiscordId.mockResolvedValue(usersSamples[0].user);
       usersDaoMock.updateDiscordInfo.mockResolvedValue(usersSamples[1].user);
-      uuidMock.v4.mockReturnValue('');
+      uuidHelperMock.generate.mockReturnValue('');
       axiosMock.get.mockResolvedValue(authSamples[0].discordAxiosResponseData);
 
-      const user = await strategy.validate(
+      const validatedData = await strategy.validate(
         '',
         '',
         authSamples[0].discordResponse,
       );
 
-      expect(user).toEqual(usersSamples[1].user);
+      expect(validatedData).toEqual({
+        id: authSamples[1].passportSessionUser.id,
+        tokens: [],
+      });
     });
 
     it('should not include the discriminator in the saved username if it is null', async () => {
       usersDaoMock.getByDiscordId.mockResolvedValue(null);
       usersDaoMock.create.mockResolvedValue(usersSamples[0].user);
-      uuidMock.v4.mockReturnValue('');
+      uuidHelperMock.generate.mockReturnValue('');
       axiosMock.get.mockResolvedValue(authSamples[0].discordAxiosResponseData);
 
       await strategy.validate('', '', {
@@ -150,7 +185,7 @@ describe('DiscordStrategy', () => {
     it('should not include the discriminator in the saved username if it is 0', async () => {
       usersDaoMock.getByDiscordId.mockResolvedValue(null);
       usersDaoMock.create.mockResolvedValue(usersSamples[0].user);
-      uuidMock.v4.mockReturnValue('');
+      uuidHelperMock.generate.mockReturnValue('');
       axiosMock.get.mockResolvedValue(authSamples[0].discordAxiosResponseData);
 
       await strategy.validate('', '', authSamples[0].discordResponse);
@@ -167,7 +202,7 @@ describe('DiscordStrategy', () => {
     it('should include the discriminator in the saved username if it is neither null nor 0', async () => {
       usersDaoMock.getByDiscordId.mockResolvedValue(null);
       usersDaoMock.create.mockResolvedValue(usersSamples[0].user);
-      uuidMock.v4.mockReturnValue('');
+      uuidHelperMock.generate.mockReturnValue('');
       axiosMock.get.mockResolvedValue(authSamples[0].discordAxiosResponseData);
 
       await strategy.validate('', '', authSamples[1].discordResponse);
@@ -186,7 +221,7 @@ describe('DiscordStrategy', () => {
       usersDaoMock.create.mockResolvedValue(
         authSamples[0].userWithDiscordAvatar,
       );
-      uuidMock.v4.mockReturnValue('sampleFilename');
+      uuidHelperMock.generate.mockReturnValue('sampleFilename');
       axiosMock.get.mockResolvedValue(authSamples[0].discordAxiosResponseData);
 
       await strategy.validate('', '', authSamples[0].discordResponse);
@@ -208,10 +243,10 @@ describe('DiscordStrategy', () => {
       usersDaoMock.getByDiscordId.mockResolvedValue(
         authSamples[0].userWithDiscordAvatar,
       );
-      usersDaoMock.create.mockResolvedValue(
+      usersDaoMock.updateDiscordInfo.mockResolvedValue(
         authSamples[0].userWithDiscordAvatar,
       );
-      uuidMock.v4.mockReturnValue('sampleFilename');
+      uuidHelperMock.generate.mockReturnValue('sampleFilename');
       axiosMock.get.mockResolvedValue(authSamples[0].discordAxiosResponseData);
 
       await strategy.validate('', '', authSamples[0].discordResponse);
@@ -233,7 +268,7 @@ describe('DiscordStrategy', () => {
       usersDaoMock.create.mockResolvedValue(
         authSamples[0].userWithDiscordAvatar,
       );
-      uuidMock.v4.mockReturnValue('sampleFilename');
+      uuidHelperMock.generate.mockReturnValue('sampleFilename');
       axiosMock.get.mockResolvedValue(authSamples[0].discordAxiosResponseData);
 
       await strategy.validate('', '', {
@@ -262,10 +297,10 @@ describe('DiscordStrategy', () => {
       usersDaoMock.getByDiscordId.mockResolvedValue(
         authSamples[0].userWithDiscordAvatar,
       );
-      usersDaoMock.create.mockResolvedValue(
+      usersDaoMock.updateDiscordInfo.mockResolvedValue(
         authSamples[0].userWithDiscordAvatar,
       );
-      uuidMock.v4.mockReturnValue('sampleFilename');
+      uuidHelperMock.generate.mockReturnValue('sampleFilename');
       axiosMock.get.mockResolvedValue(authSamples[0].discordAxiosResponseData);
 
       await strategy.validate('', '', {
@@ -292,7 +327,7 @@ describe('DiscordStrategy', () => {
     it('should return with a null object if the avatar hash of the new user is null', async () => {
       usersDaoMock.getByDiscordId.mockResolvedValue(null);
       usersDaoMock.create.mockResolvedValue(usersSamples[0].user);
-      uuidMock.v4.mockReturnValue('');
+      uuidHelperMock.generate.mockReturnValue('');
       axiosMock.get.mockResolvedValue(authSamples[0].discordAxiosResponseData);
 
       await strategy.validate('', '', {
@@ -312,8 +347,8 @@ describe('DiscordStrategy', () => {
 
     it('should return with a null object if the avatar hash of the existing user is null', async () => {
       usersDaoMock.getByDiscordId.mockResolvedValue(usersSamples[0].user);
-      usersDaoMock.create.mockResolvedValue(usersSamples[0].user);
-      uuidMock.v4.mockReturnValue('');
+      usersDaoMock.updateDiscordInfo.mockResolvedValue(usersSamples[0].user);
+      uuidHelperMock.generate.mockReturnValue('');
       axiosMock.get.mockResolvedValue(authSamples[0].discordAxiosResponseData);
 
       await strategy.validate('', '', {
@@ -335,7 +370,7 @@ describe('DiscordStrategy', () => {
       usersDaoMock.create.mockResolvedValue(
         authSamples[0].userWithDiscordAvatar,
       );
-      uuidMock.v4.mockReturnValue('');
+      uuidHelperMock.generate.mockReturnValue('');
       axiosMock.get.mockRejectedValue(new Error());
 
       await strategy.validate('', '', authSamples[0].discordResponse);
@@ -353,10 +388,10 @@ describe('DiscordStrategy', () => {
       usersDaoMock.getByDiscordId.mockResolvedValue(
         authSamples[0].userWithDiscordAvatar,
       );
-      usersDaoMock.create.mockResolvedValue(
+      usersDaoMock.updateDiscordInfo.mockResolvedValue(
         authSamples[0].userWithDiscordAvatar,
       );
-      uuidMock.v4.mockReturnValue('');
+      uuidHelperMock.generate.mockReturnValue('');
       axiosMock.get.mockRejectedValue(new Error());
 
       await strategy.validate('', '', authSamples[0].discordResponse);
@@ -373,10 +408,10 @@ describe('DiscordStrategy', () => {
       usersDaoMock.getByDiscordId.mockResolvedValue(
         authSamples[0].userWithDiscordAvatar,
       );
-      usersDaoMock.create.mockResolvedValue(
+      usersDaoMock.updateDiscordInfo.mockResolvedValue(
         authSamples[0].userWithDiscordAvatar,
       );
-      uuidMock.v4.mockReturnValue('');
+      uuidHelperMock.generate.mockReturnValue('');
       axiosMock.get.mockResolvedValue(authSamples[0].discordAxiosResponseData);
       filesHelperMock.exists.mockReturnValue(true);
 
@@ -389,10 +424,10 @@ describe('DiscordStrategy', () => {
       usersDaoMock.getByDiscordId.mockResolvedValue(
         authSamples[0].userWithDiscordAvatar,
       );
-      usersDaoMock.create.mockResolvedValue(
+      usersDaoMock.updateDiscordInfo.mockResolvedValue(
         authSamples[0].userWithDiscordAvatar,
       );
-      uuidMock.v4.mockReturnValue('');
+      uuidHelperMock.generate.mockReturnValue('');
       axiosMock.get.mockResolvedValue(authSamples[0].discordAxiosResponseData);
       filesHelperMock.exists.mockReturnValue(true);
 
@@ -408,10 +443,10 @@ describe('DiscordStrategy', () => {
       usersDaoMock.getByDiscordId.mockResolvedValue(
         authSamples[0].userWithDiscordAvatar,
       );
-      usersDaoMock.create.mockResolvedValue(
+      usersDaoMock.updateDiscordInfo.mockResolvedValue(
         authSamples[0].userWithDiscordAvatar,
       );
-      uuidMock.v4.mockReturnValue('');
+      uuidHelperMock.generate.mockReturnValue('');
       axiosMock.get.mockResolvedValue(authSamples[0].discordAxiosResponseData);
       filesHelperMock.exists.mockImplementation((_, filename: string) => {
         if (filename.endsWith('.png')) {
@@ -433,10 +468,10 @@ describe('DiscordStrategy', () => {
           avatarHash: `a_${authSamples[0].discordResponse.avatar}`,
         },
       });
-      usersDaoMock.create.mockResolvedValue(
+      usersDaoMock.updateDiscordInfo.mockResolvedValue(
         authSamples[0].userWithDiscordAvatar,
       );
-      uuidMock.v4.mockReturnValue('');
+      uuidHelperMock.generate.mockReturnValue('');
       axiosMock.get.mockResolvedValue(authSamples[0].discordAxiosResponseData);
       filesHelperMock.exists.mockImplementation((_, filename: string) => {
         if (filename.endsWith('.gif')) {
@@ -457,10 +492,10 @@ describe('DiscordStrategy', () => {
       usersDaoMock.getByDiscordId.mockResolvedValue(
         authSamples[0].userWithDiscordAvatar,
       );
-      usersDaoMock.create.mockResolvedValue(
+      usersDaoMock.updateDiscordInfo.mockResolvedValue(
         authSamples[0].userWithDiscordAvatar,
       );
-      uuidMock.v4.mockReturnValue('');
+      uuidHelperMock.generate.mockReturnValue('');
       axiosMock.get.mockResolvedValue(authSamples[0].discordAxiosResponseData);
       filesHelperMock.exists.mockImplementation((_, filename: string) => {
         if (filename.endsWith('.gif')) {
@@ -476,10 +511,10 @@ describe('DiscordStrategy', () => {
 
     it('should delete the avatars of the existing user if they are not up to date and retrieving them from Discord has succeeded', async () => {
       usersDaoMock.getByDiscordId.mockResolvedValue(usersSamples[0].user);
-      usersDaoMock.create.mockResolvedValue(
+      usersDaoMock.updateDiscordInfo.mockResolvedValue(
         authSamples[0].userWithDiscordAvatar,
       );
-      uuidMock.v4.mockReturnValue('');
+      uuidHelperMock.generate.mockReturnValue('');
       axiosMock.get.mockResolvedValue(authSamples[0].discordAxiosResponseData);
       filesHelperMock.exists.mockReturnValue(true);
 
@@ -499,10 +534,10 @@ describe('DiscordStrategy', () => {
       usersDaoMock.getByDiscordId.mockResolvedValue(
         authSamples[0].userWithDiscordAvatar,
       );
-      usersDaoMock.create.mockResolvedValue(
+      usersDaoMock.updateDiscordInfo.mockResolvedValue(
         authSamples[0].userWithDiscordAvatar,
       );
-      uuidMock.v4.mockReturnValue('');
+      uuidHelperMock.generate.mockReturnValue('');
       axiosMock.get.mockRejectedValue(new Error());
       filesHelperMock.exists.mockReturnValue(true);
 
@@ -516,7 +551,7 @@ describe('DiscordStrategy', () => {
       usersDaoMock.create.mockResolvedValue(
         authSamples[0].userWithDiscordAvatar,
       );
-      uuidMock.v4.mockReturnValue('');
+      uuidHelperMock.generate.mockReturnValue('');
       axiosMock.get.mockResolvedValue(authSamples[0].discordAxiosResponseData);
 
       await strategy.validate('', '', authSamples[0].discordResponse);
@@ -535,10 +570,10 @@ describe('DiscordStrategy', () => {
 
     it('should save PNG avatars of existing users', async () => {
       usersDaoMock.getByDiscordId.mockResolvedValue(usersSamples[0].user);
-      usersDaoMock.create.mockResolvedValue(
+      usersDaoMock.updateDiscordInfo.mockResolvedValue(
         authSamples[0].userWithDiscordAvatar,
       );
-      uuidMock.v4.mockReturnValue('');
+      uuidHelperMock.generate.mockReturnValue('');
       axiosMock.get.mockResolvedValue(authSamples[0].discordAxiosResponseData);
       filesHelperMock.exists.mockReturnValue(true);
 
@@ -561,7 +596,7 @@ describe('DiscordStrategy', () => {
       usersDaoMock.create.mockResolvedValue(
         authSamples[0].userWithDiscordAvatar,
       );
-      uuidMock.v4.mockReturnValue('');
+      uuidHelperMock.generate.mockReturnValue('');
       axiosMock.get.mockResolvedValue(authSamples[0].discordAxiosResponseData);
 
       await strategy.validate('', '', {
@@ -583,10 +618,10 @@ describe('DiscordStrategy', () => {
 
     it('should save PNG and GIF avatars of existing users if the avatar hash begins with "a_"', async () => {
       usersDaoMock.getByDiscordId.mockResolvedValue(usersSamples[0].user);
-      usersDaoMock.create.mockResolvedValue(
+      usersDaoMock.updateDiscordInfo.mockResolvedValue(
         authSamples[0].userWithDiscordAvatar,
       );
-      uuidMock.v4.mockReturnValue('');
+      uuidHelperMock.generate.mockReturnValue('');
       axiosMock.get.mockResolvedValue(authSamples[0].discordAxiosResponseData);
 
       await strategy.validate('', '', {
@@ -611,7 +646,7 @@ describe('DiscordStrategy', () => {
       usersDaoMock.create.mockResolvedValue(
         authSamples[0].userWithDiscordAvatar,
       );
-      uuidMock.v4.mockReturnValue('');
+      uuidHelperMock.generate.mockReturnValue('');
       axiosMock.get.mockRejectedValue(new Error());
 
       await strategy.validate('', '', authSamples[0].discordResponse);
@@ -621,10 +656,10 @@ describe('DiscordStrategy', () => {
 
     it('should not save avatars of existing users if retrieving them from Discord has failed', async () => {
       usersDaoMock.getByDiscordId.mockResolvedValue(usersSamples[0].user);
-      usersDaoMock.create.mockResolvedValue(
+      usersDaoMock.updateDiscordInfo.mockResolvedValue(
         authSamples[0].userWithDiscordAvatar,
       );
-      uuidMock.v4.mockReturnValue('');
+      uuidHelperMock.generate.mockReturnValue('');
       axiosMock.get.mockRejectedValue(new Error());
       filesHelperMock.exists.mockReturnValue(true);
 
@@ -638,7 +673,7 @@ describe('DiscordStrategy', () => {
       usersDaoMock.create.mockResolvedValue(
         authSamples[0].userWithDiscordAvatar,
       );
-      uuidMock.v4.mockReturnValue('');
+      uuidHelperMock.generate.mockReturnValue('');
       axiosMock.get.mockResolvedValue(authSamples[0].discordAxiosResponseData);
       filesHelperMock.save.mockRejectedValue(new Error());
 
@@ -655,10 +690,10 @@ describe('DiscordStrategy', () => {
 
     it('should delete the avatar filename of existing users if saving the files has failed', async () => {
       usersDaoMock.getByDiscordId.mockResolvedValue(usersSamples[0].user);
-      usersDaoMock.create.mockResolvedValue(
+      usersDaoMock.updateDiscordInfo.mockResolvedValue(
         authSamples[0].userWithDiscordAvatar,
       );
-      uuidMock.v4.mockReturnValue('');
+      uuidHelperMock.generate.mockReturnValue('');
       axiosMock.get.mockResolvedValue(authSamples[0].discordAxiosResponseData);
       filesHelperMock.exists.mockReturnValue(true);
       filesHelperMock.save.mockRejectedValue(new Error());

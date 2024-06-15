@@ -6,6 +6,9 @@ import { usersSamples } from '@app/modules/users/__tests__/samples/users.samples
 import { User } from '@app/modules/users/schemas/user';
 import { UsersDao } from '@app/modules/users/users.dao';
 
+import { PassportSessionUser } from '../schemas/passport-session';
+import { authSamples } from './samples/auth.samples';
+
 describe('SessionSerializer', () => {
   // Properties & methods
 
@@ -47,23 +50,83 @@ describe('SessionSerializer', () => {
     it('should serialize user', () => {
       expect.assertions(1);
 
-      usersDaoMock.getById.mockResolvedValue(usersSamples[0].user);
-
       serializer.serializeUser(
-        usersSamples[0].user,
-        (error: Error, user: User) => {
-          expect(user).toEqual(usersSamples[0].user);
+        authSamples[0].passportSessionUser,
+        (_error: Error, sessionUser: PassportSessionUser) => {
+          expect(sessionUser).toEqual(authSamples[0].passportSessionUser);
         },
       );
     });
 
-    it('should return null if user does not exist', async () => {
+    it('should remove expired tokens from session', () => {
       expect.assertions(1);
 
+      const now = new Date();
+
+      const passportSessionUser = {
+        ...authSamples[0].passportSessionUser,
+        tokens: [
+          {
+            authorizationCode: '',
+            bearerToken: '',
+            expiresAt: new Date(
+              now.getFullYear(),
+              now.getMonth(),
+              now.getDate() + 1,
+            ).toISOString(),
+          },
+          {
+            authorizationCode: '',
+            bearerToken: '',
+            expiresAt: new Date(
+              now.getFullYear(),
+              now.getMonth() + 1,
+              now.getDate(),
+            ).toISOString(),
+          },
+          {
+            authorizationCode: '',
+            bearerToken: '',
+            expiresAt: new Date(
+              now.getFullYear() + 1,
+              now.getMonth(),
+              now.getDate(),
+            ).toISOString(),
+          },
+          {
+            authorizationCode: '',
+            bearerToken: '',
+            expiresAt: new Date(
+              now.getFullYear(),
+              now.getMonth(),
+              now.getDate() - 1,
+            ).toISOString(),
+          },
+          {
+            authorizationCode: '',
+            bearerToken: '',
+            expiresAt: new Date(
+              now.getFullYear(),
+              now.getMonth() - 1,
+              now.getDate(),
+            ).toISOString(),
+          },
+          {
+            authorizationCode: '',
+            bearerToken: '',
+            expiresAt: new Date(
+              now.getFullYear() - 1,
+              now.getMonth(),
+              now.getDate(),
+            ).toISOString(),
+          },
+        ],
+      };
+
       serializer.serializeUser(
-        usersSamples[0].user,
-        (error: Error, user: User) => {
-          expect(user).toBeUndefined();
+        passportSessionUser,
+        (_error: Error, _sessionUser: PassportSessionUser) => {
+          expect(passportSessionUser.tokens.length).toEqual(3);
         },
       );
     });
@@ -76,8 +139,8 @@ describe('SessionSerializer', () => {
       usersDaoMock.getById.mockResolvedValue(usersSamples[0].user);
 
       serializer.deserializeUser(
-        usersSamples[0].user,
-        (error: Error, user: User) => {
+        authSamples[0].passportSessionUser,
+        (_error: Error, user: User) => {
           expect(user).toEqual(usersSamples[0].user);
         },
       );
@@ -87,9 +150,82 @@ describe('SessionSerializer', () => {
       expect.assertions(1);
 
       serializer.deserializeUser(
-        usersSamples[0].user,
-        (error: Error, user: User) => {
+        authSamples[0].passportSessionUser,
+        (_error: Error, user: User) => {
           expect(user).toBeUndefined();
+        },
+      );
+    });
+
+    it('should remove expired tokens from session', () => {
+      expect.assertions(1);
+
+      const now = new Date();
+
+      const passportSessionUser = {
+        ...authSamples[0].passportSessionUser,
+        tokens: [
+          {
+            authorizationCode: '',
+            bearerToken: '',
+            expiresAt: new Date(
+              now.getFullYear(),
+              now.getMonth(),
+              now.getDate() + 1,
+            ).toISOString(),
+          },
+          {
+            authorizationCode: '',
+            bearerToken: '',
+            expiresAt: new Date(
+              now.getFullYear(),
+              now.getMonth() + 1,
+              now.getDate(),
+            ).toISOString(),
+          },
+          {
+            authorizationCode: '',
+            bearerToken: '',
+            expiresAt: new Date(
+              now.getFullYear() + 1,
+              now.getMonth(),
+              now.getDate(),
+            ).toISOString(),
+          },
+          {
+            authorizationCode: '',
+            bearerToken: '',
+            expiresAt: new Date(
+              now.getFullYear(),
+              now.getMonth(),
+              now.getDate() - 1,
+            ).toISOString(),
+          },
+          {
+            authorizationCode: '',
+            bearerToken: '',
+            expiresAt: new Date(
+              now.getFullYear(),
+              now.getMonth() - 1,
+              now.getDate(),
+            ).toISOString(),
+          },
+          {
+            authorizationCode: '',
+            bearerToken: '',
+            expiresAt: new Date(
+              now.getFullYear() - 1,
+              now.getMonth(),
+              now.getDate(),
+            ).toISOString(),
+          },
+        ],
+      };
+
+      serializer.deserializeUser(
+        passportSessionUser,
+        (_error: Error, _user: User) => {
+          expect(passportSessionUser.tokens.length).toEqual(3);
         },
       );
     });

@@ -1,15 +1,24 @@
-import { BadRequestException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import { Request } from 'express';
 
 import { getConfigImport } from '@app/helpers/__tests__/imports/config-imports.helper';
 import { reqMock } from '@app/helpers/__tests__/mocks/express.mocks';
+import { redisServiceMock } from '@app/helpers/__tests__/mocks/redis.mocks';
 import { utilMock } from '@app/helpers/__tests__/mocks/util.mocks';
+import { uuidHelperMock } from '@app/helpers/__tests__/mocks/uuid.mocks';
 import { utilSymbol } from '@app/helpers/imports/imports.helper';
+import { UuidHelper } from '@app/helpers/uuid/uuid.helper';
 import { AuthService } from '@app/modules/auth/auth.service';
 import { usersSamples } from '@app/modules/users/__tests__/samples/users.samples';
+import { RedisService } from '@app/providers/redis/redis.service';
 
+import { PassportSession } from '../schemas/passport-session';
 import { authSamples } from './samples/auth.samples';
 
 describe('AuthService', () => {
@@ -24,6 +33,14 @@ describe('AuthService', () => {
       imports: [getConfigImport()],
       providers: [
         AuthService,
+        {
+          provide: RedisService,
+          useValue: redisServiceMock,
+        },
+        {
+          provide: UuidHelper,
+          useValue: uuidHelperMock,
+        },
         {
           provide: utilSymbol,
           useValue: utilMock,
@@ -54,30 +71,36 @@ describe('AuthService', () => {
     expect(service).toBeDefined();
   });
 
-  describe('getDiscordLoginState', () => {
-    it('should return an empty string if query contains state', () => {
-      reqMock.query = authSamples[0].discordStateDto;
+  describe('createDiscordLoginState', () => {
+    it('should return passed state if query contains state', async () => {
+      const state = await service.createDiscordLoginState(
+        authSamples[0].discordStateDto.state,
+        authSamples[0].discordLoginDto,
+      );
 
-      const state = service.getDiscordLoginState(reqMock as {} as Request);
-
-      expect(state).toEqual('');
+      expect(state).toEqual(authSamples[0].discordStateDto.state);
     });
 
-    it('should return login state if CORS origin is null', () => {
-      reqMock.query = authSamples[0].discordLoginDto;
+    it('should return login state if CORS origin is null', async () => {
+      uuidHelperMock.generate.mockReturnValue(
+        authSamples[0].discordStateDto.state,
+      );
       jest.spyOn(configService, 'get').mockReturnValue({
         corsOrigin: null,
       });
 
-      const state = service.getDiscordLoginState(reqMock as {} as Request);
-
-      expect(JSON.parse(decodeURIComponent(state))).toEqual(
+      const state = await service.createDiscordLoginState(
+        undefined,
         authSamples[0].discordLoginDto,
       );
+
+      expect(state).toEqual(authSamples[0].discordStateDto.state);
     });
 
-    it('should return login state if redirect URLs begin with the string CORS origin', () => {
-      reqMock.query = authSamples[0].discordLoginDto;
+    it('should return login state if origin of redirect URLs match with the string CORS origin', async () => {
+      uuidHelperMock.generate.mockReturnValue(
+        authSamples[0].discordStateDto.state,
+      );
       jest.spyOn(configService, 'get').mockReturnValue({
         corsOrigin: [
           authSamples[0].discordLoginDto.successRedirectUrl,
@@ -85,152 +108,381 @@ describe('AuthService', () => {
         ],
       });
 
-      const state = service.getDiscordLoginState(reqMock as {} as Request);
-
-      expect(JSON.parse(decodeURIComponent(state))).toEqual(
+      const state = await service.createDiscordLoginState(
+        undefined,
         authSamples[0].discordLoginDto,
       );
+
+      expect(state).toEqual(authSamples[0].discordStateDto.state);
     });
 
-    it('should return login state if redirect URLs match with the regex CORS origin', () => {
-      reqMock.query = authSamples[0].discordLoginDto;
+    it('should return login state if redirect URLs match with the regex CORS origin', async () => {
+      uuidHelperMock.generate.mockReturnValue(
+        authSamples[0].discordStateDto.state,
+      );
       jest.spyOn(configService, 'get').mockReturnValue({
         corsOrigin: [/^https:\/\/sample-(success|fail)/],
       });
 
-      const state = service.getDiscordLoginState(reqMock as {} as Request);
-
-      expect(JSON.parse(decodeURIComponent(state))).toEqual(
+      const state = await service.createDiscordLoginState(
+        undefined,
         authSamples[0].discordLoginDto,
       );
+
+      expect(state).toEqual(authSamples[0].discordStateDto.state);
     });
 
-    it('should fail if redirect URLs does not begin with the string CORS orign', async () => {
-      reqMock.query = authSamples[0].discordLoginDto;
+    it('should fail if origin of redirect URLs does not match with the string CORS orign', async () => {
       jest.spyOn(configService, 'get').mockReturnValue({
-        corsOrigin: ['incorrect'],
+        corsOrigin: ['https://incorrect'],
       });
 
       await expect(
-        new Promise(() => {
-          service.getDiscordLoginState(reqMock as {} as Request);
-        }),
+        service.createDiscordLoginState(
+          undefined,
+          authSamples[0].discordLoginDto,
+        ),
       ).rejects.toBeInstanceOf(BadRequestException);
     });
 
     it('should fail if redirect URLs does not match with the regex CORS orign', async () => {
-      reqMock.query = authSamples[0].discordLoginDto;
       jest.spyOn(configService, 'get').mockReturnValue({
         corsOrigin: [/incorrect/],
       });
 
       await expect(
-        new Promise(() => {
-          service.getDiscordLoginState(reqMock as {} as Request);
-        }),
+        service.createDiscordLoginState(
+          undefined,
+          authSamples[0].discordLoginDto,
+        ),
       ).rejects.toBeInstanceOf(BadRequestException);
     });
   });
 
   describe('getRedirectUrl', () => {
-    it('should return success redirect URL if user is successfully logged in and CORS origin is null', () => {
-      reqMock.user = usersSamples[0].user;
-      reqMock.query = authSamples[0].discordStateDto;
+    it('should return success redirect URL if user is successfully logged in and CORS origin is null', async () => {
+      redisServiceMock.get.mockResolvedValue(
+        JSON.stringify(authSamples[0].discordLoginDto),
+      );
+      uuidHelperMock.generate.mockReturnValue('sampleCode');
       jest.spyOn(configService, 'get').mockReturnValue({
         corsOrigin: null,
+        sessionCookieMaxAge: 0,
       });
 
-      const redirectUrl = service.getRedirectUrl(reqMock as {} as Request);
+      const redirectUrl = await service.getRedirectUrl(
+        authSamples[0].discordStateDto.state,
+        usersSamples[0].user,
+        {
+          passport: {
+            user: authSamples[0].passportSessionUser,
+          },
+        } as {} as PassportSession,
+      );
 
       expect(redirectUrl).toEqual(
-        authSamples[0].discordLoginDto.successRedirectUrl,
+        `${authSamples[0].discordLoginDto.successRedirectUrl}/?code=sampleCode`,
       );
     });
 
-    it('should return success redirect URL if user is successfully logged in and redirect URLs begin with the string CORS origin', () => {
-      reqMock.user = usersSamples[0].user;
-      reqMock.query = authSamples[0].discordStateDto;
+    it('should return success redirect URL if user is successfully logged in and origin of redirect URLs match with the string CORS origin', async () => {
+      redisServiceMock.get.mockResolvedValue(
+        JSON.stringify(authSamples[0].discordLoginDto),
+      );
+      uuidHelperMock.generate.mockReturnValue('sampleCode');
       jest.spyOn(configService, 'get').mockReturnValue({
         corsOrigin: [
           authSamples[0].discordLoginDto.successRedirectUrl,
           authSamples[0].discordLoginDto.failRedirectUrl,
         ],
+        sessionCookieMaxAge: 0,
       });
 
-      const redirectUrl = service.getRedirectUrl(reqMock as {} as Request);
+      const redirectUrl = await service.getRedirectUrl(
+        authSamples[0].discordStateDto.state,
+        usersSamples[0].user,
+        {
+          passport: {
+            user: authSamples[0].passportSessionUser,
+          },
+        } as {} as PassportSession,
+      );
 
       expect(redirectUrl).toEqual(
-        authSamples[0].discordLoginDto.successRedirectUrl,
+        `${authSamples[0].discordLoginDto.successRedirectUrl}/?code=sampleCode`,
       );
     });
 
-    it('should return success redirect URL if user is successfully logged in and redirect URLs match with the regex CORS origin', () => {
-      reqMock.user = usersSamples[0].user;
-      reqMock.query = authSamples[0].discordStateDto;
+    it('should return success redirect URL if user is successfully logged in and redirect URLs match with the regex CORS origin', async () => {
+      redisServiceMock.get.mockResolvedValue(
+        JSON.stringify(authSamples[0].discordLoginDto),
+      );
+      uuidHelperMock.generate.mockReturnValue('sampleCode');
       jest.spyOn(configService, 'get').mockReturnValue({
         corsOrigin: [/^https:\/\/sample-(success|fail)/],
+        sessionCookieMaxAge: 0,
       });
 
-      const redirectUrl = service.getRedirectUrl(reqMock as {} as Request);
+      const redirectUrl = await service.getRedirectUrl(
+        authSamples[0].discordStateDto.state,
+        usersSamples[0].user,
+        {
+          passport: {
+            user: authSamples[0].passportSessionUser,
+          },
+        } as {} as PassportSession,
+      );
 
       expect(redirectUrl).toEqual(
-        authSamples[0].discordLoginDto.successRedirectUrl,
+        `${authSamples[0].discordLoginDto.successRedirectUrl}/?code=sampleCode`,
       );
     });
 
-    it('should return fail redirect URL if user failed to log in', () => {
-      reqMock.user = null;
-      reqMock.query = authSamples[0].discordStateDto;
+    it('should return fail redirect URL if user failed to log in', async () => {
+      redisServiceMock.get.mockResolvedValue(
+        JSON.stringify(authSamples[0].discordLoginDto),
+      );
+      uuidHelperMock.generate.mockReturnValue('sampleCode');
       jest.spyOn(configService, 'get').mockReturnValue({
         corsOrigin: null,
+        sessionCookieMaxAge: 0,
       });
 
-      const redirectUrl = service.getRedirectUrl(reqMock as {} as Request);
+      const redirectUrl = await service.getRedirectUrl(
+        authSamples[0].discordStateDto.state,
+        null,
+        {} as PassportSession,
+      );
 
       expect(redirectUrl).toEqual(
         authSamples[0].discordLoginDto.failRedirectUrl,
       );
     });
 
-    it('should fail if state does not exist', async () => {
-      reqMock.query = {};
+    it('should delete state from Redis', async () => {
+      redisServiceMock.get.mockResolvedValue(
+        JSON.stringify(authSamples[0].discordLoginDto),
+      );
+      uuidHelperMock.generate.mockReturnValue('sampleCode');
       jest.spyOn(configService, 'get').mockReturnValue({
         corsOrigin: null,
+        sessionCookieMaxAge: 0,
+      });
+
+      await service.getRedirectUrl(
+        authSamples[0].discordStateDto.state,
+        usersSamples[0].user,
+        {
+          passport: {
+            user: authSamples[0].passportSessionUser,
+          },
+        } as {} as PassportSession,
+      );
+
+      expect(redisServiceMock.del).toHaveBeenCalled();
+    });
+
+    it('should fail if state does not exist', async () => {
+      redisServiceMock.get.mockResolvedValue(
+        JSON.stringify(authSamples[0].discordLoginDto),
+      );
+      uuidHelperMock.generate.mockReturnValue('sampleCode');
+      jest.spyOn(configService, 'get').mockReturnValue({
+        corsOrigin: null,
+        sessionCookieMaxAge: 0,
       });
 
       await expect(
-        new Promise(() => {
-          service.getRedirectUrl(reqMock as {} as Request);
-        }),
+        service.getRedirectUrl(
+          null,
+          usersSamples[0].user,
+          {} as PassportSession,
+        ),
       ).rejects.toBeInstanceOf(BadRequestException);
     });
 
-    it('should fail if redirect URLs does not begin with the string CORS orign', async () => {
-      reqMock.user = usersSamples[0].user;
-      reqMock.query = authSamples[0].discordStateDto;
+    it('should fail if origin of redirect URLs does not match with the string CORS orign', async () => {
+      redisServiceMock.get.mockResolvedValue(
+        JSON.stringify(authSamples[0].discordLoginDto),
+      );
+      uuidHelperMock.generate.mockReturnValue('sampleCode');
       jest.spyOn(configService, 'get').mockReturnValue({
-        corsOrigin: ['incorrect'],
+        corsOrigin: ['https://incorrect'],
+        sessionCookieMaxAge: 0,
       });
 
       await expect(
-        new Promise(() => {
-          service.getRedirectUrl(reqMock as {} as Request);
-        }),
+        service.getRedirectUrl(
+          authSamples[0].discordStateDto.state,
+          usersSamples[0].user,
+          {} as PassportSession,
+        ),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('should fail if state does not exist in Redis', async () => {
+      redisServiceMock.get.mockResolvedValue(null);
+      uuidHelperMock.generate.mockReturnValue('sampleCode');
+      jest.spyOn(configService, 'get').mockReturnValue({
+        corsOrigin: null,
+        sessionCookieMaxAge: 0,
+      });
+
+      await expect(
+        service.getRedirectUrl(
+          authSamples[0].discordStateDto.state,
+          usersSamples[0].user,
+          {} as PassportSession,
+        ),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('should fail if state exists in Redis but is invalid', async () => {
+      redisServiceMock.get.mockResolvedValue('{}');
+      uuidHelperMock.generate.mockReturnValue('sampleCode');
+      jest.spyOn(configService, 'get').mockReturnValue({
+        corsOrigin: null,
+        sessionCookieMaxAge: 0,
+      });
+
+      await expect(
+        service.getRedirectUrl(
+          authSamples[0].discordStateDto.state,
+          usersSamples[0].user,
+          {} as PassportSession,
+        ),
       ).rejects.toBeInstanceOf(BadRequestException);
     });
 
     it('should fail if redirect URLs does not match with the regex CORS orign', async () => {
-      reqMock.user = usersSamples[0].user;
-      reqMock.query = authSamples[0].discordStateDto;
+      redisServiceMock.get.mockResolvedValue(
+        JSON.stringify(authSamples[0].discordLoginDto),
+      );
+      uuidHelperMock.generate.mockReturnValue('sampleCode');
       jest.spyOn(configService, 'get').mockReturnValue({
         corsOrigin: [/incorrect/],
+        sessionCookieMaxAge: 0,
       });
 
       await expect(
-        new Promise(() => {
-          service.getRedirectUrl(reqMock as {} as Request);
-        }),
+        service.getRedirectUrl(
+          authSamples[0].discordStateDto.state,
+          usersSamples[0].user,
+          {} as PassportSession,
+        ),
       ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('should fail if session does not exist', async () => {
+      redisServiceMock.get.mockResolvedValue(
+        JSON.stringify(authSamples[0].discordLoginDto),
+      );
+      uuidHelperMock.generate.mockReturnValue('sampleCode');
+      jest.spyOn(configService, 'get').mockReturnValue({
+        corsOrigin: null,
+        sessionCookieMaxAge: 0,
+      });
+
+      await expect(
+        service.getRedirectUrl(
+          authSamples[0].discordStateDto.state,
+          usersSamples[0].user,
+          {} as PassportSession,
+        ),
+      ).rejects.toBeInstanceOf(UnauthorizedException);
+    });
+  });
+
+  describe('token', () => {
+    it('should return new bearer token if user is logged in and has the correct authorization code which has not yet expired', () => {
+      const now = new Date();
+
+      uuidHelperMock.generate.mockReturnValue('sampleBearerToken');
+
+      const bearerToken = service.token('sampleAuthorizationCode', {
+        passport: {
+          user: {
+            ...authSamples[0].passportSessionUser,
+            tokens: [
+              {
+                authorizationCode: 'sampleAuthorizationCode',
+                bearerToken: '',
+                expiresAt: new Date(
+                  now.getFullYear(),
+                  now.getMonth(),
+                  now.getDate() + 1,
+                ).toISOString(),
+              },
+            ],
+          },
+        },
+      } as PassportSession);
+
+      expect(bearerToken).toEqual({
+        bearerToken: 'sampleBearerToken',
+      });
+    });
+
+    it('should fail if session does not exist', async () => {
+      await expect(
+        new Promise(() => {
+          service.token('sampleAuthorizationCode', {} as PassportSession);
+        }),
+      ).rejects.toBeInstanceOf(UnauthorizedException);
+    });
+
+    it('should fail if stored token is expired', async () => {
+      const now = new Date();
+
+      await expect(
+        new Promise(() => {
+          service.token('sampleAuthorizationCode', {
+            passport: {
+              user: {
+                ...authSamples[0].passportSessionUser,
+                tokens: [
+                  {
+                    authorizationCode: 'sampleAuthorizationCode',
+                    bearerToken: '',
+                    expiresAt: new Date(
+                      now.getFullYear(),
+                      now.getMonth(),
+                      now.getDate() - 1,
+                    ).toISOString(),
+                  },
+                ],
+              },
+            },
+          } as PassportSession);
+        }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('should fail if authorization code does not match stored value', async () => {
+      const now = new Date();
+
+      await expect(
+        new Promise(() => {
+          service.token('sampleInvalidAuthorizationCode', {
+            passport: {
+              user: {
+                ...authSamples[0].passportSessionUser,
+                tokens: [
+                  {
+                    authorizationCode: 'sampleAuthorizationCode',
+                    bearerToken: '',
+                    expiresAt: new Date(
+                      now.getFullYear(),
+                      now.getMonth(),
+                      now.getDate() + 1,
+                    ).toISOString(),
+                  },
+                ],
+              },
+            },
+          } as PassportSession);
+        }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
     });
   });
 

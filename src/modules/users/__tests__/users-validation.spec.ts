@@ -2,7 +2,7 @@ import { INestApplication } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 
 import { HttpMethod } from '@app/constants/http-request.constants';
-import { AuthGuard } from '@app/guards/auth.guard';
+import { BearerAuthGuard } from '@app/guards/bearer-auth.guard';
 import { getConfigImport } from '@app/helpers/__tests__/imports/config-imports.helper';
 import { createBodyValidationTests } from '@app/helpers/__tests__/validation/body-validation.helper';
 import { createParamsValidationTests } from '@app/helpers/__tests__/validation/params-validation.helper';
@@ -10,7 +10,7 @@ import { createQueryValidationTests } from '@app/helpers/__tests__/validation/qu
 import { initializeGlobalPipes } from '@app/helpers/initialization/global-pipes-initialization.helper';
 import { initializeValidators } from '@app/helpers/initialization/validators-initialization.helper';
 import { ValidateMaxQueryCount } from '@app/helpers/validators/validate-max-query-count.helper';
-import { authGuardMock } from '@app/modules/auth/__tests__/mocks/auth.mocks';
+import { bearerAuthGuardMock } from '@app/modules/auth/__tests__/mocks/auth.mocks';
 import { UsersController } from '@app/modules/users/users.controller';
 import { UsersService } from '@app/modules/users/users.service';
 
@@ -33,8 +33,8 @@ describe('UsersController (validation)', () => {
         ValidateMaxQueryCount,
       ],
     })
-      .overrideGuard(AuthGuard)
-      .useValue(authGuardMock)
+      .overrideGuard(BearerAuthGuard)
+      .useValue(bearerAuthGuardMock)
       .compile();
 
     initializeValidators(module);
@@ -66,7 +66,7 @@ describe('UsersController (validation)', () => {
   beforeEach(() => {
     jest.resetAllMocks();
 
-    authGuardMock.canActivate.mockResolvedValue(true);
+    bearerAuthGuardMock.canActivate.mockResolvedValue(true);
   });
 
   // Tests

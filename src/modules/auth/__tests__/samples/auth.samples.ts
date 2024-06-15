@@ -1,9 +1,13 @@
-import { v4 as uuidv4 } from 'uuid';
+import * as uuid from 'uuid';
 
+import { UuidHelper } from '@app/helpers/uuid/uuid.helper';
 import { usersSamples } from '@app/modules/users/__tests__/samples/users.samples';
 import { User } from '@app/modules/users/schemas/user';
 
 import { DiscordLoginDto } from '../../dtos/discord-login.dto';
+import { PassportSessionUser } from '../../schemas/passport-session';
+
+const uuidHelper = new UuidHelper(uuid);
 
 function createSampleDiscordLoginDto(index: number): DiscordLoginDto {
   return {
@@ -12,11 +16,11 @@ function createSampleDiscordLoginDto(index: number): DiscordLoginDto {
   };
 }
 
-function createSampleDiscordStateDto(dto: DiscordLoginDto): {
+function createSampleDiscordStateDto(): {
   state: string;
 } {
   return {
-    state: encodeURIComponent(JSON.stringify(dto)),
+    state: uuidHelper.generate(),
   };
 }
 
@@ -29,7 +33,7 @@ function createSampleDiscordResponse(index: number): {
   avatar: string;
 } {
   return {
-    id: uuidv4().replaceAll('-', ''),
+    id: uuidHelper.generate(),
     username: `sampleDiscordUsername${index}`,
     discriminator: index.toString(),
     global_name: `sampleDiscordGlobalName${index}`,
@@ -57,6 +61,28 @@ function createSampleUserWithDiscordAvatar(index: number): User {
   };
 }
 
+function createSamplePassportSessionUser(
+  user: User,
+  index: number,
+): PassportSessionUser {
+  const now = new Date();
+
+  return {
+    id: user.id,
+    tokens: [
+      {
+        authorizationCode: `sampleAuthorizationCode${index}`,
+        bearerToken: `sampleBearerToken${index}`,
+        expiresAt: new Date(
+          now.getFullYear(),
+          now.getMonth(),
+          now.getDate() + 1,
+        ).toISOString(),
+      },
+    ],
+  };
+}
+
 function createSamples(index: number): {
   discordLoginDto: DiscordLoginDto;
   discordStateDto: {
@@ -75,12 +101,17 @@ function createSamples(index: number): {
     data: string;
   };
   userWithDiscordAvatar: User;
+  passportSessionUser: PassportSessionUser;
 } {
   const discordLoginDto = createSampleDiscordLoginDto(index);
-  const discordStateDto = createSampleDiscordStateDto(discordLoginDto);
+  const discordStateDto = createSampleDiscordStateDto();
   const discordResponse = createSampleDiscordResponse(index);
   const discordAxiosResponseData = createSampleDiscordAxiosResponse(index);
   const userWithDiscordAvatar = createSampleUserWithDiscordAvatar(index);
+  const passportSessionUser = createSamplePassportSessionUser(
+    userWithDiscordAvatar,
+    index,
+  );
 
   return {
     discordLoginDto,
@@ -88,6 +119,7 @@ function createSamples(index: number): {
     discordResponse,
     discordAxiosResponseData,
     userWithDiscordAvatar,
+    passportSessionUser,
   };
 }
 

@@ -83,6 +83,9 @@ class EnvironmentVariables {
   @IsBooleanString()
   public AUTH_IS_SESSION_COOKIE_SECURE: string;
 
+  @IsInt()
+  public AUTH_LOGIN_STATE_TTL_SECONDS: number;
+
   @IsString()
   @IsNotEmpty()
   public DISCORD_CLIENT_ID: string;
@@ -155,6 +158,7 @@ export function validate(config: Record<string, unknown>): {
       isUsingProxy: validatedConfig.AUTH_IS_USING_PROXY === 'true',
       isSessionCookieSecure:
         validatedConfig.AUTH_IS_SESSION_COOKIE_SECURE === 'true',
+      loginStateTtlSeconds: validatedConfig.AUTH_LOGIN_STATE_TTL_SECONDS,
     },
     discord: {
       clientId: validatedConfig.DISCORD_CLIENT_ID,

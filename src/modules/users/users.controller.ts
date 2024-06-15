@@ -10,7 +10,7 @@ import {
 } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
-  ApiCookieAuth,
+  ApiBearerAuth,
   ApiForbiddenResponse,
   ApiNotFoundResponse,
   ApiOkResponse,
@@ -20,7 +20,7 @@ import {
 } from '@nestjs/swagger';
 import { Request } from 'express';
 
-import { UseAuthGuard } from '@app/guards/auth.guard';
+import { UseBearerAuthGuard } from '@app/guards/bearer-auth.guard';
 
 import { GetUsersQueryDto } from './dtos/get-users.dto';
 import { UpdateUserSuperAdminStateDto } from './dtos/update-user-super-admin-state.dto';
@@ -35,9 +35,10 @@ import { UsersService } from './users.service';
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
-  @UseAuthGuard()
+  @UseBearerAuthGuard()
   @Get()
   @ApiOperation({ summary: 'Retrieves a list of users.' })
+  @ApiBearerAuth()
   @ApiOkResponse({ description: 'Users successfully retrieved', type: [User] })
   @ApiBadRequestResponse({ description: 'Invalid input' })
   public async getMany(@Query() dto: GetUsersQueryDto): Promise<{
@@ -47,9 +48,10 @@ export class UsersController {
     return this.usersService.getMany(dto);
   }
 
-  @UseAuthGuard()
+  @UseBearerAuthGuard()
   @Get(':id')
   @ApiOperation({ summary: 'Retrieves a user by their ID.' })
+  @ApiBearerAuth()
   @ApiOkResponse({ description: 'User successfully retrieved', type: User })
   @ApiBadRequestResponse({ description: 'Invalid input' })
   @ApiNotFoundResponse({ description: 'User not found' })
@@ -57,9 +59,10 @@ export class UsersController {
     return this.usersService.getById(id);
   }
 
-  @UseAuthGuard()
+  @UseBearerAuthGuard()
   @Get('discord/ids/:discordId')
   @ApiOperation({ summary: 'Retrieves a user by their Discord ID.' })
+  @ApiBearerAuth()
   @ApiOkResponse({ description: 'User successfully retrieved', type: User })
   @ApiBadRequestResponse({ description: 'Invalid input' })
   @ApiNotFoundResponse({ description: 'User not found' })
@@ -69,9 +72,10 @@ export class UsersController {
     return this.usersService.getByDiscordId(discordId);
   }
 
-  @UseAuthGuard()
+  @UseBearerAuthGuard()
   @Get('discord/usernames/:discordUsername')
   @ApiOperation({ summary: 'Retrieves a user by their Discord username.' })
+  @ApiBearerAuth()
   @ApiOkResponse({ description: 'User successfully retrieved', type: User })
   @ApiBadRequestResponse({ description: 'Invalid input' })
   @ApiNotFoundResponse({ description: 'User not found' })
@@ -81,12 +85,12 @@ export class UsersController {
     return this.usersService.getByDiscordUsername(discordUsername);
   }
 
-  @UseAuthGuard({
+  @UseBearerAuthGuard({
     isSuperAdmin: true,
   })
   @Patch(':id/super-admin-state')
   @ApiOperation({ summary: 'Updates the super admin state of a user.' })
-  @ApiCookieAuth()
+  @ApiBearerAuth()
   @ApiOkResponse({ description: 'User super admin state successfully updated' })
   @ApiBadRequestResponse({ description: 'Invalid input' })
   @ApiUnauthorizedResponse({ description: 'Unauthorized' })
@@ -99,10 +103,10 @@ export class UsersController {
     return this.usersService.updateSuperAdminState(id, dto);
   }
 
-  @UseAuthGuard()
+  @UseBearerAuthGuard()
   @Delete(':id')
   @ApiOperation({ summary: 'Deletes a user by their ID.' })
-  @ApiCookieAuth()
+  @ApiBearerAuth()
   @ApiOkResponse({ description: 'User successfully deleted' })
   @ApiBadRequestResponse({ description: 'Invalid input' })
   @ApiUnauthorizedResponse({ description: 'Unauthorized' })

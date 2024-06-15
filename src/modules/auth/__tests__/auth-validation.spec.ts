@@ -2,7 +2,7 @@ import { INestApplication } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 
 import { HttpMethod } from '@app/constants/http-request.constants';
-import { AuthGuard } from '@app/guards/auth.guard';
+import { BearerAuthGuard } from '@app/guards/bearer-auth.guard';
 import { DiscordAuthGuard } from '@app/guards/discord-auth.guard';
 import { createQueryValidationTests } from '@app/helpers/__tests__/validation/query-validation.helper';
 import { initializeGlobalPipes } from '@app/helpers/initialization/global-pipes-initialization.helper';
@@ -10,8 +10,8 @@ import { AuthController } from '@app/modules/auth/auth.controller';
 import { AuthService } from '@app/modules/auth/auth.service';
 
 import {
-  authGuardMock,
   authServiceMock,
+  bearerAuthGuardMock,
   discordAuthGuardMock,
 } from './mocks/auth.mocks';
 import { authSamples } from './samples/auth.samples';
@@ -33,8 +33,8 @@ describe('UsersController (validation)', () => {
     })
       .overrideGuard(DiscordAuthGuard)
       .useValue(discordAuthGuardMock)
-      .overrideGuard(AuthGuard)
-      .useValue(authGuardMock)
+      .overrideGuard(BearerAuthGuard)
+      .useValue(bearerAuthGuardMock)
       .compile();
 
     return module;
@@ -91,6 +91,22 @@ describe('UsersController (validation)', () => {
           property: 'failRedirectUrl',
           successValues: ['https://localhost'],
           failValues: ['localhost', 'string', ''],
+        },
+      ],
+    });
+  });
+
+  describe('token', () => {
+    createQueryValidationTests({
+      appGetter: () => app,
+      httpMethod: HttpMethod.Get,
+      path: '/auth/token',
+      expectedSuccessStatusCode: 200,
+      propertyTestValues: [
+        {
+          property: 'code',
+          successValues: ['string'],
+          failValues: [''],
         },
       ],
     });

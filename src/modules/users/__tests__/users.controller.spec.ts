@@ -2,8 +2,8 @@ import { INestApplication } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import * as request from 'supertest';
 
-import { AuthGuard } from '@app/guards/auth.guard';
-import { authGuardMock } from '@app/modules/auth/__tests__/mocks/auth.mocks';
+import { BearerAuthGuard } from '@app/guards/bearer-auth.guard';
+import { bearerAuthGuardMock } from '@app/modules/auth/__tests__/mocks/auth.mocks';
 import { UsersController } from '@app/modules/users/users.controller';
 import { UsersService } from '@app/modules/users/users.service';
 
@@ -25,8 +25,8 @@ describe('UsersController', () => {
         },
       ],
     })
-      .overrideGuard(AuthGuard)
-      .useValue(authGuardMock)
+      .overrideGuard(BearerAuthGuard)
+      .useValue(bearerAuthGuardMock)
       .compile();
 
     return module;
@@ -54,7 +54,7 @@ describe('UsersController', () => {
   beforeEach(() => {
     jest.resetAllMocks();
 
-    authGuardMock.canActivate.mockResolvedValue(true);
+    bearerAuthGuardMock.canActivate.mockResolvedValue(true);
   });
 
   // Tests

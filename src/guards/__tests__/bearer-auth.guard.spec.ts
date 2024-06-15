@@ -2,32 +2,30 @@ import { Controller, Get, INestApplication, mixin, Type } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import * as request from 'supertest';
 
-import { UseAuthGuard } from '@app/guards/auth.guard';
-import { LoginHelperModule } from '@app/helpers/__tests__/guards/login-helper.module';
-import { LoginHelperService } from '@app/helpers/__tests__/guards/login-helper.service';
+import { UseBearerAuthGuard } from '@app/guards/bearer-auth.guard';
+import { BearerLoginHelperStrategy } from '@app/helpers/__tests__/guards/bearer-login-helper.strategy';
 import { getConfigImport } from '@app/helpers/__tests__/imports/config-imports.helper';
 import { getSessionImports } from '@app/helpers/__tests__/imports/session-imports.helper';
 import { initializeSession } from '@app/helpers/initialization/session-initialization.helper';
 import { usersDaoMock } from '@app/modules/users/__tests__/mocks/users.mocks';
 import { usersSamples } from '@app/modules/users/__tests__/samples/users.samples';
+import { UsersDao } from '@app/modules/users/users.dao';
 
-describe('AuthGuard', () => {
+describe('BearerAuthGuard', () => {
   // Properties & methods
 
   let app: INestApplication;
 
-  let loginHelperService: LoginHelperService;
-
   const createTestController = (): Type<unknown> => {
     @Controller('test')
     class TestController {
-      @UseAuthGuard()
+      @UseBearerAuthGuard()
       @Get('any-user')
       public anyUser(): void {
         // Do nothing
       }
 
-      @UseAuthGuard({
+      @UseBearerAuthGuard({
         isSuperAdmin: true,
       })
       @Get('super-admin')
@@ -35,7 +33,7 @@ describe('AuthGuard', () => {
         // Do nothing
       }
 
-      @UseAuthGuard({
+      @UseBearerAuthGuard({
         isSuperAdmin: false,
       })
       @Get('non-super-admin')
@@ -47,15 +45,18 @@ describe('AuthGuard', () => {
     return mixin(TestController);
   };
 
-  const initializeModule = async (
-    controller: Type<unknown>,
-  ): Promise<TestingModule> => {
+  const initializeModule = async (): Promise<TestingModule> => {
     const module = await Test.createTestingModule({
-      imports: [getConfigImport(), ...getSessionImports(), LoginHelperModule],
-      controllers: [controller],
+      imports: [getConfigImport(), ...getSessionImports()],
+      controllers: [createTestController()],
+      providers: [
+        BearerLoginHelperStrategy,
+        {
+          provide: UsersDao,
+          useValue: usersDaoMock,
+        },
+      ],
     }).compile();
-
-    loginHelperService = module.get(LoginHelperService);
 
     return module;
   };
@@ -73,7 +74,7 @@ describe('AuthGuard', () => {
   // Before/after methods
 
   beforeAll(async () => {
-    const module = await initializeModule(createTestController());
+    const module = await initializeModule();
     await initializeApp(module);
   });
 
@@ -91,13 +92,9 @@ describe('AuthGuard', () => {
     it('should allow access if user is logged in', async () => {
       usersDaoMock.getById.mockResolvedValue(usersSamples[0].user);
 
-      const { loginHeader } = await loginHelperService.login({
-        appGetter: () => app,
-      });
-
       const { statusCode } = await request(app.getHttpServer())
         .get('/test/any-user')
-        .set('Cookie', [...loginHeader['set-cookie']]);
+        .send();
 
       expect(statusCode).toEqual(200);
     });
@@ -105,25 +102,9 @@ describe('AuthGuard', () => {
     it('should deny access if user is logged out', async () => {
       usersDaoMock.getById.mockResolvedValue(null);
 
-      const { statusCode } = await request(app.getHttpServer()).get(
-        '/test/any-user',
-      );
-
-      expect(statusCode).toEqual(401);
-    });
-
-    it('should deny access if user is logged in but has been deleted', async () => {
-      usersDaoMock.getById.mockResolvedValue(usersSamples[0].user);
-
-      const { loginHeader } = await loginHelperService.login({
-        appGetter: () => app,
-      });
-
-      usersDaoMock.getById.mockResolvedValue(null);
-
       const { statusCode } = await request(app.getHttpServer())
         .get('/test/any-user')
-        .set('Cookie', [...loginHeader['set-cookie']]);
+        .send();
 
       expect(statusCode).toEqual(401);
     });
@@ -136,13 +117,9 @@ describe('AuthGuard', () => {
         isSuperAdmin: true,
       });
 
-      const { loginHeader } = await loginHelperService.login({
-        appGetter: () => app,
-      });
-
       const { statusCode } = await request(app.getHttpServer())
         .get('/test/super-admin')
-        .set('Cookie', [...loginHeader['set-cookie']]);
+        .send();
 
       expect(statusCode).toEqual(200);
     });
@@ -153,40 +130,19 @@ describe('AuthGuard', () => {
         isSuperAdmin: false,
       });
 
-      const { loginHeader } = await loginHelperService.login({
-        appGetter: () => app,
-      });
-
       const { statusCode } = await request(app.getHttpServer())
         .get('/test/super-admin')
-        .set('Cookie', [...loginHeader['set-cookie']]);
+        .send();
 
       expect(statusCode).toEqual(403);
     });
 
     it('should deny access if user is logged out', async () => {
-      const { statusCode } = await request(app.getHttpServer()).get(
-        '/test/super-admin',
-      );
-
-      expect(statusCode).toEqual(401);
-    });
-
-    it('should deny access if user is logged in and is a super admin but has been deleted', async () => {
-      usersDaoMock.getById.mockResolvedValue({
-        ...usersSamples[0].user,
-        isSuperAdmin: true,
-      });
-
-      const { loginHeader } = await loginHelperService.login({
-        appGetter: () => app,
-      });
-
       usersDaoMock.getById.mockResolvedValue(null);
 
       const { statusCode } = await request(app.getHttpServer())
         .get('/test/super-admin')
-        .set('Cookie', [...loginHeader['set-cookie']]);
+        .send();
 
       expect(statusCode).toEqual(401);
     });
@@ -199,13 +155,9 @@ describe('AuthGuard', () => {
         isSuperAdmin: false,
       });
 
-      const { loginHeader } = await loginHelperService.login({
-        appGetter: () => app,
-      });
-
       const { statusCode } = await request(app.getHttpServer())
         .get('/test/non-super-admin')
-        .set('Cookie', [...loginHeader['set-cookie']]);
+        .send();
 
       expect(statusCode).toEqual(200);
     });
@@ -216,40 +168,19 @@ describe('AuthGuard', () => {
         isSuperAdmin: true,
       });
 
-      const { loginHeader } = await loginHelperService.login({
-        appGetter: () => app,
-      });
-
       const { statusCode } = await request(app.getHttpServer())
         .get('/test/non-super-admin')
-        .set('Cookie', [...loginHeader['set-cookie']]);
+        .send();
 
       expect(statusCode).toEqual(403);
     });
 
     it('should deny access if user is logged out', async () => {
-      const { statusCode } = await request(app.getHttpServer()).get(
-        '/test/non-super-admin',
-      );
-
-      expect(statusCode).toEqual(401);
-    });
-
-    it('should deny access if user is logged in and is not a super admin but has been deleted', async () => {
-      usersDaoMock.getById.mockResolvedValue({
-        ...usersSamples[0].user,
-        isSuperAdmin: false,
-      });
-
-      const { loginHeader } = await loginHelperService.login({
-        appGetter: () => app,
-      });
-
       usersDaoMock.getById.mockResolvedValue(null);
 
       const { statusCode } = await request(app.getHttpServer())
         .get('/test/non-super-admin')
-        .set('Cookie', [...loginHeader['set-cookie']]);
+        .send();
 
       expect(statusCode).toEqual(401);
     });

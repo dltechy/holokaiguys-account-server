@@ -1,6 +1,7 @@
 export const authServiceMock = {
-  getDiscordLoginState: jest.fn(),
+  createDiscordLoginState: jest.fn(),
   getRedirectUrl: jest.fn(),
+  token: jest.fn(),
   logout: jest.fn(),
   userinfo: jest.fn(),
 };
@@ -9,6 +10,6 @@ export const discordAuthGuardMock = {
   canActivate: jest.fn(),
 };
 
-export const authGuardMock = {
+export const bearerAuthGuardMock = {
   canActivate: jest.fn(),
 };

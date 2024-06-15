@@ -24,7 +24,7 @@ export function initializeSwagger(app: INestApplication): void {
       .setTitle(name ?? '')
       .setVersion(version)
       .addServer(baseUrl)
-      .addCookieAuth()
+      .addBearerAuth()
       .build();
     const document = SwaggerModule.createDocument(app, swaggerConfig);
     SwaggerModule.setup('docs', app, document);

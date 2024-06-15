@@ -4,4 +4,5 @@ export interface AuthConfig {
   sessionCookieMaxAge: number;
   isUsingProxy: boolean;
   isSessionCookieSecure: boolean;
+  loginStateTtlSeconds: number;
 }

@@ -10,14 +10,17 @@ import {
   axiosSymbol,
   AxiosType,
   DiscordStrategy as Strategy,
-  uuidSymbol,
-  UuidType,
-  Uuidv4Type,
 } from '@app/helpers/imports/imports.helper';
+import { UuidHelper } from '@app/helpers/uuid/uuid.helper';
 import { User } from '@app/modules/users/schemas/user';
 
 import { UsersDao } from '../users/users.dao';
 import { AuthService } from './auth.service';
+import { DiscordLoginDto } from './dtos/discord-login.dto';
+import {
+  PassportSession,
+  PassportSessionUser,
+} from './schemas/passport-session';
 
 type AvatarImages = {
   filename: string;
@@ -27,15 +30,13 @@ type AvatarImages = {
 
 @Injectable()
 export class DiscordStrategy extends Strategy {
-  private readonly uuidv4: Uuidv4Type;
-
   constructor(
     configService: ConfigService,
     private readonly authService: AuthService,
     private readonly usersDao: UsersDao,
     private readonly filesHelper: FilesHelper,
+    private readonly uuidHelper: UuidHelper,
     @Inject(axiosSymbol) private readonly axios: AxiosType,
-    @Inject(uuidSymbol) uuid: UuidType,
   ) {
     const { baseUrl } = configService.get<AppConfig>('app');
     const { clientId, clientSecret, scopes } =
@@ -47,17 +48,27 @@ export class DiscordStrategy extends Strategy {
       callbackURL: `${baseUrl}/auth/discord/callback`,
       scope: scopes,
     });
-
-    this.uuidv4 = uuid.v4;
   }
 
-  public authenticate(req: Request): void {
-    const state = this.authService.getDiscordLoginState(req);
+  public async authenticate(req: Request): Promise<void> {
+    const state = await this.authService.createDiscordLoginState(
+      req.query.state as string,
+      req.query as {} as DiscordLoginDto,
+    );
 
-    super.authenticate(req, {
-      failWithError: true,
-      state,
-    });
+    const { user: sessionUser } =
+      (req.session as PassportSession).passport ?? {};
+
+    if (sessionUser != null) {
+      req.query.state = state;
+
+      this.success(sessionUser);
+    } else {
+      super.authenticate(req, {
+        failWithError: true,
+        state,
+      });
+    }
   }
 
   private async getAvatarImages(
@@ -70,7 +81,7 @@ export class DiscordStrategy extends Strategy {
 
     try {
       const output: AvatarImages = {
-        filename: this.uuidv4().replaceAll('-', ''),
+        filename: this.uuidHelper.generate(),
         pngData: '',
       };
 
@@ -201,7 +212,7 @@ export class DiscordStrategy extends Strategy {
       avatar: string;
       /* eslint-enable @typescript-eslint/naming-convention */
     },
-  ): Promise<User> {
+  ): Promise<PassportSessionUser> {
     const uniqueUsername =
       !discriminator || discriminator === '0'
         ? username
@@ -255,6 +266,9 @@ export class DiscordStrategy extends Strategy {
       await this.saveAvatarImages(avatarImages);
     }
 
-    return user;
+    return {
+      id: user.id,
+      tokens: [],
+    };
   }
 }
